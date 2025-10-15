@@ -44,10 +44,14 @@
   (condition-case err
       (require 'web-server)
     (error
+     ;; Store error for later - we can't use user-error here as this runs at load time
+     (defvar claude-code-ide-mcp-http-server--web-server-load-error
+       (format "Failed to load web-server package: %s. Please install it with: M-x package-install RET web-server RET"
+               (error-message-string err)))
      (claude-code-ide-debug "Failed to load web-server package: %s" (error-message-string err)))))
 
 ;; Web-server declarations
-(declare-function ws-process "web-server" (server))
+(declare-function ws-process "web-server" (obj))
 (declare-function ws-start "web-server" (handlers port &optional log-buffer &rest network-args))
 (declare-function ws-stop "web-server" (server))
 (declare-function ws-send-404 "web-server" (proc &optional info))
@@ -83,7 +87,9 @@ Returns the session ID or nil if not found."
 If PORT is nil, a random available port is selected.
 Returns a cons cell of (server . port)."
   (unless (featurep 'web-server)
-    (error "web-server package is not available"))
+    (if (boundp 'claude-code-ide-mcp-http-server--web-server-load-error)
+        (error "%s" claude-code-ide-mcp-http-server--web-server-load-error)
+      (error "The web-server package is required but not available.  Please install it with: M-x package-install RET web-server RET")))
   (claude-code-ide-debug "Attempting to start MCP server on port %s" (or port "auto"))
   (condition-case err
       (let* ((selected-port (or port 0))  ; 0 means auto-select
@@ -121,7 +127,7 @@ Returns a cons cell of (server . port)."
   "Handle GET request to /mcp endpoint for SSE fallback."
   ;; For now, return 404 as we're implementing Streamable HTTP only
   ;; This could be extended to support SSE for backward compatibility
-  (with-slots (process) request
+  (let ((process (ws-process request)))
     (ws-send-404 process)))
 
 (defun claude-code-ide-mcp-http-server--handle-post (request)
@@ -314,17 +320,17 @@ Returns a list of arguments in the correct order."
 
 (defun claude-code-ide-mcp-http-server--send-json-response (request status body)
   "Send JSON response to REQUEST with STATUS and BODY."
-  (with-slots (process) request
-    (let ((headers (list (cons "Content-Type" "application/json")
-                         (cons "Access-Control-Allow-Origin" "*"))))
-      (apply #'ws-response-header process status headers)
-      (ws-send process (json-encode body))
-      ;; Close the connection after sending response
-      (throw 'close-connection nil))))
+  (let* ((process (ws-process request))
+         (headers (list (cons "Content-Type" "application/json")
+                        (cons "Access-Control-Allow-Origin" "*"))))
+    (apply #'ws-response-header process status headers)
+    (ws-send process (json-encode body))
+    ;; Close the connection after sending response
+    (throw 'close-connection nil)))
 
 (defun claude-code-ide-mcp-http-server--send-empty-response (request)
   "Send an empty HTTP 200 response for notifications."
-  (with-slots (process) request
+  (let ((process (ws-process request)))
     (ws-response-header process 200
                         (cons "Content-Type" "text/plain")
                         (cons "Content-Length" "0"))

@@ -45,6 +45,10 @@
   (condition-case err
       (require 'websocket)
     (error
+     ;; Store error for later - we can't use user-error here as this runs at load time
+     (defvar claude-code-ide-mcp--websocket-load-error
+       (format "Failed to load websocket package: %s. Please install it with: M-x package-install RET websocket RET"
+               (error-message-string err)))
      (claude-code-ide-debug "Failed to load websocket package: %s" (error-message-string err)))))
 (require 'json)
 (require 'cl-lib)
@@ -808,6 +812,12 @@ This should be called when the buffer's context might have changed."
 (defun claude-code-ide-mcp-start (&optional project-directory)
   "Start the MCP server for PROJECT-DIRECTORY."
   (claude-code-ide-debug "=== Starting MCP server ===")
+
+  ;; Check if websocket package is available
+  (unless (featurep 'websocket)
+    (if (boundp 'claude-code-ide-mcp--websocket-load-error)
+        (user-error "%s" claude-code-ide-mcp--websocket-load-error)
+      (user-error "The websocket package is required but not available.  Please install it with: M-x package-install RET websocket RET")))
 
   (let* ((project-dir (expand-file-name (or project-directory default-directory)))
          (existing-session (gethash project-dir claude-code-ide-mcp--sessions)))

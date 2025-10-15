@@ -1919,20 +1919,25 @@ have completed before cleanup.  Waits up to 5 seconds."
     ;; Set the process in the request
     (setf (claude-code-ide-mcp-server-tests--mock-request-process mock-request) mock-process)
     ;; Mock the ws-* functions
-    (cl-letf (((symbol-function 'ws-response-header)
+    (cl-letf (((symbol-function 'ws-process)
+               (lambda (req)
+                 (claude-code-ide-mcp-server-tests--mock-request-process req)))
+              ((symbol-function 'ws-response-header)
                #'claude-code-ide-mcp-server-tests--mock-ws-response-header)
               ((symbol-function 'ws-send)
                #'claude-code-ide-mcp-server-tests--mock-ws-send)
               ((symbol-function 'ws-send-404)
                #'claude-code-ide-mcp-server-tests--mock-ws-send-404))
       ;; Test send-json-response
-      (claude-code-ide-mcp-http-server--send-json-response
-       mock-request 200 '((test . "data")))
+      (catch 'close-connection
+        (claude-code-ide-mcp-http-server--send-json-response
+         mock-request 200 '((test . "data"))))
       (should (equal claude-code-ide-mcp-server-tests--last-response-status 200))
       (should (string-match "test.*:.*data" claude-code-ide-mcp-server-tests--last-response))
 
       ;; Test handle-get (404 response)
-      (claude-code-ide-mcp-http-server--handle-get mock-request)
+      (catch 'close-connection
+        (claude-code-ide-mcp-http-server--handle-get mock-request))
       (should (equal claude-code-ide-mcp-server-tests--last-response-status 404)))))
 
 ;;; MCP Server Session Context Tests
